@@ -498,6 +498,97 @@ def collect_dsl_info(fc):
     return m
 
 
+def _find_service(fc, fragment):
+    """Return the TR-064 service name containing `fragment`, or None."""
+    for name in fc.services:
+        if fragment in name:
+            return name
+    return None
+
+
+def _dbm(val):
+    """FRITZ!OS reports optical levels in dBm/1000."""
+    try:
+        return round(int(val) / 1000.0, 3)
+    except (ValueError, TypeError):
+        return None
+
+
+def collect_fiber_info(fc):
+    """Fibre metrics (AON/GPON/XGS-PON) from X_AVM-DE_WANFiber1.
+
+    Only present on fibre boxes such as the FRITZ!Box 5590 Fiber; on DSL
+    or cable boxes the service does not exist and nothing is returned.
+    """
+    m = {}
+    svc = _find_service(fc, "WANFiber")
+    if not svc:
+        return m
+
+    r = safe_call(fc, svc, "GetInfo")
+    if r:
+        for key, zkey in [
+            ("NewOpticalSignalLevel", "optical_rx_dbm"),
+            ("NewLowerOpticalThreshold", "optical_rx_lower_threshold_dbm"),
+            ("NewUpperOpticalThreshold", "optical_rx_upper_threshold_dbm"),
+            ("NewTransmitOpticalLevel", "optical_tx_dbm"),
+            ("NewLowerTransmitPowerThreshold", "optical_tx_lower_threshold_dbm"),
+            ("NewUpperTransmitPowerThreshold", "optical_tx_upper_threshold_dbm"),
+        ]:
+            if key in r:
+                v = _dbm(r[key])
+                if v is not None:
+                    m[f"fritzbox.fiber.{zkey}"] = v
+        for key, zkey in [
+            ("NewSFPVendor", "sfp_vendor"),
+            ("NewSFPPartNumber", "sfp_part_number"),
+            ("NewSFPSerialNumber", "sfp_serial_number"),
+            ("NewSFPType", "sfp_type"),
+            ("NewTXWaveLength", "tx_wavelength"),
+            ("NewFiberMode", "mode"),
+        ]:
+            if key in r:
+                m[f"fritzbox.fiber.{zkey}"] = r[key]
+
+    # GetInfoGPON returns 401 on AON boxes/modules
+    r = safe_call(fc, svc, "GetInfoGPON")
+    if r:
+        for key, zkey in [
+            ("NewGponSerial", "gpon_serial"),
+            ("NewPONId", "pon_id"),
+            ("NewONUId", "onu_id"),
+            ("NewUNIType", "uni_type"),
+            ("NewGEMPortCount", "gem_port_count"),
+        ]:
+            if key in r:
+                m[f"fritzbox.fiber.{zkey}"] = r[key]
+
+    r = safe_call(fc, svc, "GetStatistics")
+    if r:
+        for key, zkey in [
+            ("NewBytesSent", "bytes_sent"),
+            ("NewBytesReceived", "bytes_received"),
+            ("NewPacketsSent", "packets_sent"),
+            ("NewPacketsReceived", "packets_received"),
+            ("NewPacketErrorsSent", "packet_errors_sent"),
+            ("NewPacketErrorsReceived", "packet_errors_received"),
+            ("NewPacketsMulticast", "packets_multicast"),
+            ("NewConnectionRateDown", "rate_down"),
+            ("NewConnectionRateUp", "rate_up"),
+            ("NewBestTrainState", "best_train_state"),
+            ("NewResyncs", "resyncs"),
+            ("NewMinutesInShowtime", "minutes_in_showtime"),
+        ]:
+            if key in r:
+                m[f"fritzbox.fiber.{zkey}"] = r[key]
+
+    # Physical link state of the Ethernet/SFP uplink (also used by AON)
+    r = safe_call(fc, "WANEthernetLinkConfig1", "GetEthernetLinkStatus")
+    if r:
+        m["fritzbox.fiber.link_status"] = r.get("NewEthernetLinkStatus", "")
+    return m
+
+
 def collect_wlan_info(fc):
     global _wlan_signal_by_mac
     m = {}
@@ -1771,6 +1862,7 @@ def collect_all(fc, lua, cmon):
     for name, fn in [
         ("wan", collect_wan_info),
         ("dsl", collect_dsl_info),
+        ("fiber", collect_fiber_info),
         ("wlan", collect_wlan_info),
         ("lan", collect_lan_info),
         ("homeauto", collect_homeauto_info),
@@ -1784,14 +1876,17 @@ def collect_all(fc, lua, cmon):
         except Exception as e:
             log.warning("TR-064 %s: %s", name, e)
     if lua:
-        for name, fn in [
+        lua_collectors = [
             ("system", collect_lua_system),
             ("traffic", collect_lua_traffic),
             ("netdev", collect_lua_netdev),
             ("overview", collect_lua_overview),
             ("energy", collect_lua_energy),
-            ("dsl_detail", collect_lua_dsl_detail),
-        ]:
+        ]
+        # dslStat only exists on DSL boxes (not on fibre/cable models)
+        if "WANDSLInterfaceConfig1" in fc.services:
+            lua_collectors.append(("dsl_detail", collect_lua_dsl_detail))
+        for name, fn in lua_collectors:
             try:
                 r = fn(lua)
                 m.update(r)

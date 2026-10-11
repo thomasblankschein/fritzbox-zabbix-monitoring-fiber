@@ -29,6 +29,7 @@ Comprehensive monitoring of AVM Fritz!Box routers using **three interfaces**, se
 | **WAN** | TR-064 | Connection status, external IPv4/IPv6, bytes/packets, current transfer rates, DNS |
 | **DSL** | TR-064 | Sync rates, noise margin (SNR), attenuation, CRC/FEC/HEC errors |
 | **DSL Detail** | LUA | Error seconds, loss of signal/frame, capacity |
+| **Fiber** | TR-064 (`X_AVM-DE_WANFiber1`) | Optical RX/TX level (dBm) with device thresholds, SFP vendor/type/serial, fibre mode (AON/GPON/XGS-PON), PON/ONU ID, packet errors, resyncs. Only present on fibre boxes (e.g. FRITZ!Box 5590 Fiber) |
 | **WLAN** | TR-064 | Per-band status (2.4/5/Guest), channel, SSID, clients, packets |
 | **LAN** | TR-064 | Active/total hosts, WLAN vs Ethernet breakdown, per-port stats |
 | **Smart Home** | TR-064 | Per-device: temperature, power (mW), energy (Wh), switch, battery |
@@ -56,6 +57,10 @@ Comprehensive monitoring of AVM Fritz!Box routers using **three interfaces**, se
 | High CRC error rate | WARNING | TR-064 |
 | Firmware update available | WARNING | TR-064 |
 | UPnP enabled | INFO | TR-064 |
+| Optical receive level below/above device threshold | HIGH / WARNING | TR-064 (fiber) |
+| Optical transmit level out of range | WARNING | TR-064 (fiber) |
+| High packet error rate on fiber link | WARNING | TR-064 (fiber) |
+| Fiber link resynced | INFO | TR-064 (fiber) |
 | CPU temperature high (>80C) | WARNING | LUA |
 | CPU temperature critical (>90C) | HIGH | LUA |
 | CPU usage high (>80%) | WARNING | LUA |
@@ -152,6 +157,7 @@ Zabbix sender: sent: 107; skipped: 0; total: 107
 | `{$FRITZBOX.DSL.NOISE_MARGIN.MIN}` | `6` | Min noise margin (dB) |
 | `{$FRITZBOX.DSL.CRC_ERRORS.THRESHOLD}` | `100` | CRC error delta threshold |
 | `{$FRITZBOX.UPTIME.MIN}` | `600` | Reboot detection threshold (s) |
+| `{$FRITZBOX.FIBER.PACKET_ERRORS.THRESHOLD}` | `100` | Fiber packet error delta threshold |
 | `{$FRITZBOX.CPU_TEMP.WARN}` | `80` | CPU temp warning (C) |
 | `{$FRITZBOX.CPU_TEMP.HIGH}` | `90` | CPU temp critical (C) |
 | `{$FRITZBOX.CPU_USAGE.WARN}` | `80` | CPU usage warning (%) |
