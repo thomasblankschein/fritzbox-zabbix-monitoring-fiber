@@ -149,7 +149,7 @@ Zabbix sender: sent: 107; skipped: 0; total: 107
 | `CALLMONITOR_PORT` | `1012` | Callmonitor TCP port |
 | `DEVICE_LOG_ITEM_KEY` | `fritzbox.device.log` | Zabbix item key used for streamed device log events |
 | `DEVICE_LOG_HISTORY_SIZE` | `5000` | Number of log fingerprints kept in memory for deduplication |
-| `LUA_FIBER_PAGES` | `fiberOv,fiberInfo,fiberStat,fiber,gponOv` | Fiber boxes only: candidate `data.lua` page names for the fibre info (Rx/Tx level, laser). The first page that returns data is used |
+| `LUA_FIBER_PAGES` | `inetOv,fiberStat,fiberInfo,gponOv,overview` | Fiber boxes only: candidate `data.lua` page names for the fibre info (Rx/Tx level, laser). The first page that yields Rx/Tx or laser values is used; `overview` is only a fallback for the connection rates |
 
 ## Template Macros
 

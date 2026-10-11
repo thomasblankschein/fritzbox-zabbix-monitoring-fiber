@@ -1584,11 +1584,24 @@ def collect_lua_dsl_detail(lua):
 LUA_FIBER_PAGES = [
     p.strip()
     for p in os.environ.get(
-        "LUA_FIBER_PAGES", "fiberOv,fiberInfo,fiberStat,fiber,gponOv"
+        "LUA_FIBER_PAGES", "inetOv,fiberStat,fiberInfo,gponOv,overview"
     ).split(",")
     if p.strip()
 ]
 _lua_fiber_state = {"page": None, "misses": 0, "dumped": False}
+_FIBER_LEVEL_KEYS = (
+    "fritzbox.fiber.optical_rx_dbm",
+    "fritzbox.fiber.optical_tx_dbm",
+    "fritzbox.fiber.laser_temperature",
+    "fritzbox.fiber.laser_voltage",
+)
+# Only these fields are ever logged: the overview page also carries call lists
+# and device names, which must not end up in the log.
+_FIBER_LOG_LABEL = re.compile(
+    r"fiber|glas|laser|dbm|gpon|sfp|\brx|\btx|wellen|leistung|spannung|"
+    r"temperatur|empfang|senden|\bpon|onu|verbindungstyp",
+    re.I,
+)
 
 _FIBER_NUM = r"(-?\d+(?:[.,]\d+)?)"
 # (metric key, regex on the lower-cased label, unit regex on the value)
@@ -1646,6 +1659,16 @@ def _fiber_parse_pairs(pairs):
             label, text = sm.group(1), sm.group(2).strip()
         low = label.lower()
 
+        # overview page: fiber.down / fiber.up in kbit/s
+        if low in ("fiber.down", "fiber.up") and re.fullmatch(r"\d+", text):
+            m.setdefault(
+                "fritzbox.fiber.rate_down"
+                if low.endswith("down")
+                else "fritzbox.fiber.rate_up",
+                int(text),
+            )
+            continue
+
         rate = re.match(r"^" + _FIBER_NUM + r"\s*([gmk])bit", text, re.I)
         if rate and re.search(r"empfangen|receiv|down", low):
             mult = {"g": 1_000_000, "m": 1_000, "k": 1}[rate.group(2).lower()]
@@ -1681,42 +1704,56 @@ def _fiber_parse_pairs(pairs):
 def collect_lua_fiber(lua):
     """Fibre values the web UI shows but TR-064 leaves at 0 (Rx/Tx level, laser)."""
     st = _lua_fiber_state
-    pages = [st["page"]] if st["page"] else LUA_FIBER_PAGES
-    if not st["page"]:
+    if st["page"]:
+        pages = [st["page"]]
+    else:
         # probing costs one request per candidate: retry only every 60 cycles
         st["misses"] += 1
         if st["misses"] > 1 and (st["misses"] - 1) % 60 != 0:
             return {}
+        pages = LUA_FIBER_PAGES
 
+    # Unknown page names return the generic overview instead of an error, so a
+    # page only counts as the fibre page if it yields Rx/Tx or laser values.
+    merged = {}
+    seen = []
     for page in pages:
         data = lua.data_lua(page)
         d = data.get("data") if isinstance(data, dict) else None
-        if not d:
-            continue
-        pairs = _fiber_flatten(d)
+        pairs = _fiber_flatten(d) if d else []
         if not pairs:
             continue
-        if st["page"] != page:
-            st["page"] = page
-            log.info("LUA fiber: using data.lua page '%s' (%d fields)", page, len(pairs))
         m = _fiber_parse_pairs(pairs)
-        if not st["dumped"]:
-            st["dumped"] = True
-            log.info(
-                "LUA fiber: raw fields of page '%s' (parsed: %s): %s",
-                page,
-                sorted(m),
-                json.dumps(pairs[:300], ensure_ascii=False),
-            )
-        return m
+        if any(k in m for k in _FIBER_LEVEL_KEYS):
+            if st["page"] != page:
+                st["page"] = page
+                log.info(
+                    "LUA fiber: using data.lua page '%s' (parsed: %s)",
+                    page,
+                    sorted(m),
+                )
+            return {**merged, **m}
+        seen.append((page, pairs))
+        for k, v in m.items():
+            merged.setdefault(k, v)
 
-    if st["misses"] == 1:
+    if not st["dumped"]:
+        st["dumped"] = True
+        relevant = [
+            (page, [(lab, val) for lab, val in pairs if _FIBER_LOG_LABEL.search(lab)])
+            for page, pairs in seen
+        ]
         log.info(
-            "LUA fiber: no data.lua page found among %s - set LUA_FIBER_PAGES to the "
-            "page name shown by the browser dev tools (POST /data.lua, field 'page')",
-            LUA_FIBER_PAGES,
+            "LUA fiber: no Rx/Tx or laser values found (pages tried: %s, parsed: %s). "
+            "Fibre-related fields per page: %s. Set LUA_FIBER_PAGES to the page name "
+            "from the browser dev tools (POST /data.lua, field 'page').",
+            pages,
+            sorted(merged),
+            json.dumps(
+                [(p, f[:60]) for p, f in relevant], ensure_ascii=False
+            ),
         )
-    return {}
+    return merged
 
 
 # ===================================================================
