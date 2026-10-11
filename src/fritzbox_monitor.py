@@ -1701,6 +1701,66 @@ def _fiber_parse_pairs(pairs):
     return m
 
 
+def _fiber_number(text, unit):
+    """'-16.8 dBm' / '56.2°C' / '3.3 V' -> float, or None if the unit differs."""
+    mt = re.match(
+        r"^\s*" + _FIBER_NUM + r"\s*(dbm|°\s*c|v)\b", str(text or "").replace("−", "-"), re.I
+    )
+    if not mt or mt.group(2).lower().replace("°", "").strip() != unit:
+        return None
+    return float(mt.group(1).replace(",", "."))
+
+
+def _fiber_parse_inetov(data):
+    """Parse data.lua?page=inetOv (Internet > Glasfaser-Informationen).
+
+    Structure (FRITZ!OS 8.2x, 5590 Fiber): data.connectionData.{infoMiddle,
+    infoLeft, line}; Rx/Tx are usValue (Tx) / dsValue (Rx) of one detail row.
+    """
+    m = {}
+    cd = (data or {}).get("connectionData")
+    if not isinstance(cd, dict):
+        return m
+
+    middle = cd.get("infoMiddle") or {}
+    updown = (middle.get("upDownInfos") or {}).get("details") or []
+    for row in updown if isinstance(updown, list) else []:
+        if not isinstance(row, dict):
+            continue
+        tx = _fiber_number(row.get("usValue"), "dbm")
+        rx = _fiber_number(row.get("dsValue"), "dbm")
+        if tx is not None:
+            m["fritzbox.fiber.optical_tx_dbm"] = tx
+        if rx is not None:
+            m["fritzbox.fiber.optical_rx_dbm"] = rx
+
+    more = (cd.get("infoLeft") or {}).get("moreDetails") or {}
+    entries = more.get("details") or {}
+    if isinstance(entries, dict):
+        entries = list(entries.values())
+    for e in entries if isinstance(entries, list) else []:
+        if not isinstance(e, dict):
+            continue
+        text = str(e.get("text", "")).lower()
+        value = str(e.get("value", "")).strip()
+        if "lasertemperatur" in text:
+            v = _fiber_number(value, "c")
+            if v is not None:
+                m["fritzbox.fiber.laser_temperature"] = v
+        elif "spannung" in text:
+            v = _fiber_number(value, "v")
+            if v is not None:
+                m["fritzbox.fiber.laser_voltage"] = v
+        elif "seriennummer" in text and value:
+            m["fritzbox.fiber.gpon_serial"] = value
+
+    line = cd.get("line")
+    if isinstance(line, list) and line and isinstance(line[0], dict):
+        if line[0].get("mode"):
+            m["fritzbox.fiber.mode"] = str(line[0]["mode"])
+    return m
+
+
 def collect_lua_fiber(lua):
     """Fibre values the web UI shows but TR-064 leaves at 0 (Rx/Tx level, laser)."""
     st = _lua_fiber_state
@@ -1723,7 +1783,7 @@ def collect_lua_fiber(lua):
         pairs = _fiber_flatten(d) if d else []
         if not pairs:
             continue
-        m = _fiber_parse_pairs(pairs)
+        m = {**_fiber_parse_pairs(pairs), **_fiber_parse_inetov(d)}
         if any(k in m for k in _FIBER_LEVEL_KEYS):
             if st["page"] != page:
                 st["page"] = page
@@ -1739,10 +1799,19 @@ def collect_lua_fiber(lua):
 
     if not st["dumped"]:
         st["dumped"] = True
-        relevant = [
-            (page, [(lab, val) for lab, val in pairs if _FIBER_LOG_LABEL.search(lab)])
-            for page, pairs in seen
-        ]
+        # The generic overview (fallback for unknown names) carries personal
+        # data and is filtered; a page of its own is logged completely.
+        relevant = []
+        for page, pairs in seen:
+            if any(lab.startswith("fritzos.") for lab, _ in pairs):
+                relevant.append(
+                    (
+                        page,
+                        [p for p in pairs if _FIBER_LOG_LABEL.search(p[0])],
+                    )
+                )
+            else:
+                relevant.append((page, [(lab, val[:80]) for lab, val in pairs]))
         log.info(
             "LUA fiber: no Rx/Tx or laser values found (pages tried: %s, parsed: %s). "
             "Fibre-related fields per page: %s. Set LUA_FIBER_PAGES to the page name "
@@ -1750,7 +1819,7 @@ def collect_lua_fiber(lua):
             pages,
             sorted(merged),
             json.dumps(
-                [(p, f[:60]) for p, f in relevant], ensure_ascii=False
+                [(p, f[:150]) for p, f in relevant], ensure_ascii=False
             ),
         )
     return merged
