@@ -1239,8 +1239,33 @@ def collect_lua_netdev(lua):
                         m[f"fritzbox.netdev[{sn},band]"] = (
                             mo.group(1).replace(",", ".") + " GHz"
                         )
+                # LAN devices carry no GHz, only e.g. "1 Gbit/s" or "100 Mbit/s"
+                # (any property row); unit is normalised to Mbit/s.
+                if speed is None and isinstance(props_list, list):
+                    for p in props_list:
+                        ptxt = p.get("txt", "") if isinstance(p, dict) else ""
+                        ml = re.search(
+                            r"(\d+(?:[,.]\d+)?)(?:\s*/\s*(\d+(?:[,.]\d+)?))?\s*([GMK])bit/s",
+                            str(ptxt),
+                            re.I,
+                        )
+                        if ml:
+                            factor = {"g": 1000.0, "m": 1.0, "k": 0.001}[
+                                ml.group(3).lower()
+                            ]
+                            vals = [
+                                float(x.replace(",", "."))
+                                for x in (ml.group(1), ml.group(2))
+                                if x
+                            ]
+                            speed = round(max(vals) * factor, 3)
+                            break
                 if speed is not None:
                     m[f"fritzbox.netdev[{sn},speed]"] = speed
+                else:
+                    log.debug(
+                        "LUA netDev: no speed for %s (properties: %s)", name, props_list
+                    )
 
                 # RSSI: try structured LUA fields, then TR-064 signal data by MAC
                 rssi = None
