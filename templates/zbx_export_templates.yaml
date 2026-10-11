@@ -285,6 +285,26 @@ zabbix_export:
           tags:
             - tag: component
               value: fiber
+        - uuid: b10fee80b1c048e8900639e679a9951e
+          name: 'Fiber: Laser temperature'
+          type: TRAP
+          key: fritzbox.fiber.laser_temperature
+          value_type: FLOAT
+          units: '°C'
+          description: 'SFP laser temperature (web UI, LUA).'
+          tags:
+            - tag: component
+              value: fiber
+        - uuid: 418861c9157444d999ae6f328548dab3
+          name: 'Fiber: Laser supply voltage'
+          type: TRAP
+          key: fritzbox.fiber.laser_voltage
+          value_type: FLOAT
+          units: V
+          description: 'SFP laser supply voltage (web UI, LUA).'
+          tags:
+            - tag: component
+              value: fiber
         - uuid: dd52293a917b4438b92cbc2cfbc237cd
           name: 'Fiber: Mode'
           type: TRAP
