@@ -1885,8 +1885,8 @@ zabbix_export:
               type: TRAP
               key: 'fritzbox.netdev[{#DEVNAME},speed]'
               value_type: FLOAT
-              units: Mbit/s
-              description: 'WLAN connection speed in Mbit/s (max of RX/TX from device properties)'
+              units: '!Mbit/s'
+              description: 'Link speed in Mbit/s: WLAN (max of RX/TX) or LAN port speed. The "!" keeps Zabbix from scaling the unit (1000 Mbit/s instead of 1 KMbit/s).'
               tags:
                 - tag: component
                   value: netdev
