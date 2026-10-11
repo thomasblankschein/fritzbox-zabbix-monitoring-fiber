@@ -1239,11 +1239,15 @@ def collect_lua_netdev(lua):
                         m[f"fritzbox.netdev[{sn},band]"] = (
                             mo.group(1).replace(",", ".") + " GHz"
                         )
-                # LAN devices carry no GHz, only e.g. "1 Gbit/s" or "100 Mbit/s"
-                # (any property row); unit is normalised to Mbit/s.
-                if speed is None and isinstance(props_list, list):
-                    for p in props_list:
-                        ptxt = p.get("txt", "") if isinstance(p, dict) else ""
+                # LAN devices carry no GHz, only e.g. "1 Gbit/s" or "100 Mbit/s":
+                # in any property row or, on FRITZ!OS 8.x, in the "port" field
+                # ("LAN 1 mit 1 Gbit/s"); unit is normalised to Mbit/s.
+                if speed is None:
+                    speed_texts = [
+                        p.get("txt", "") for p in props_list if isinstance(p, dict)
+                    ] if isinstance(props_list, list) else []
+                    speed_texts.append(dev.get("port", ""))
+                    for ptxt in speed_texts:
                         ml = re.search(
                             r"(\d+(?:[,.]\d+)?)(?:\s*/\s*(\d+(?:[,.]\d+)?))?\s*([GMK])bit/s",
                             str(ptxt),
